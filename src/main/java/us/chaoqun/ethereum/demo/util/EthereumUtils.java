@@ -288,4 +288,26 @@ public class EthereumUtils {
         System.out.println("Current nonce: " + nonce);
         return nonce;
     }
+
+    public TransactionParameters getContractTransactionParameters(
+            String contractAddress,
+            String encodedFunction, // ABI编码后的函数调用数据
+            BigInteger nonce,
+            long chainId,
+            int type,
+            BigInteger maxFeePerGas,
+            BigInteger maxPriorityFeePerGas) {
+        
+        return TransactionParameters.builder()
+                .nonce(nonce)
+                .to(contractAddress)
+                .value(BigInteger.ZERO)  // 如果需要发送ETH，这里可以修改
+                .data(encodedFunction)   // 合约调用数据
+                .gasLimit(BigInteger.valueOf(160000))  // 可能需要根据具体合约调整
+                .maxFeePerGas(maxFeePerGas)
+                .maxPriorityFeePerGas(maxPriorityFeePerGas)
+                .type(type)
+                .chainId(chainId)
+                .build();
+    }
 } 

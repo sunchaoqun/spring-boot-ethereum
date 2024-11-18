@@ -12,4 +12,6 @@ public class TransactionRequest {
     private Integer type;         // optional
     private Long maxFeePerGas;    // optional
     private Long maxPriorityFeePerGas; // optional
+    private String contractAddress;  // 合约地址
+    private String encodedFunction; // 已编码的合约函数调用数据
 } 

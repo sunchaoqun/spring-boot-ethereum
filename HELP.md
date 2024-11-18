@@ -1,4 +1,4 @@
-curl -X POST http://localhost:8080/api/transaction \
+curl -X POST http://localhost:8888/api/transaction \
 -H "Content-Type: application/json" \
 -d '{
     "operation": "status"

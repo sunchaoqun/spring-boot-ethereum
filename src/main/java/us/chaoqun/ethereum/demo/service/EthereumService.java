@@ -67,6 +67,39 @@ public class EthereumService {
                 response.setSignedTxHash(signedTx.getTxHash());
                 response.setSignedTxPayload(signedTx.getEncodedTransaction());
                 break;
+            
+            case "contract":
+                if (request.getContractAddress() == null || 
+                    request.getEncodedFunction() == null || 
+                    request.getNonce() == null || 
+                    request.getNonce() < 0) {
+                    response.setError("missing parameter - contract requires contractAddress, encodedFunction and nonce");
+                    return response;
+                }
+                
+                TransactionParameters contractTxParams = ethereumUtils.getContractTransactionParameters(
+                    request.getContractAddress(),
+                    request.getEncodedFunction(),
+                    BigInteger.valueOf(request.getNonce()),
+                    request.getChainId(),
+                    request.getType(),
+                    BigInteger.valueOf(request.getMaxFeePerGas()),
+                    BigInteger.valueOf(request.getMaxPriorityFeePerGas())
+                );
+                
+                byte[] pubKeyForContract = ethereumUtils.getKmsPublicKey(kmsKeyId);
+                ethChecksumAddr = ethereumUtils.calcEthAddress(pubKeyForContract);
+                
+                SignedTransaction signedContractTx = ethereumUtils.assembleTx(
+                    contractTxParams,
+                    kmsKeyId,
+                    ethChecksumAddr,
+                    request.getChainId()
+                );
+                
+                response.setSignedTxHash(signedContractTx.getTxHash());
+                response.setSignedTxPayload(signedContractTx.getEncodedTransaction());
+                break;
         }
         
         return response;
