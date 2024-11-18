@@ -1,5 +1,7 @@
 package us.chaoqun.ethereum.demo.util;
 
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
 import com.amazonaws.services.kms.AWSKMS;
 import com.amazonaws.services.kms.AWSKMSClientBuilder;
 import com.amazonaws.services.kms.model.GetPublicKeyRequest;
@@ -29,8 +31,21 @@ public class EthereumUtils {
     private final AWSKMS kmsClient;
     private final Web3j web3j;
 
-    public EthereumUtils(@Value("${ethereum.node.url}") String nodeUrl) {
-        this.kmsClient = AWSKMSClientBuilder.standard().build();
+    public EthereumUtils(@Value("${ethereum.node.url}") String nodeUrl,
+                          @Value("${aws.role.arn}") String roleArn) {
+        // this.kmsClient = AWSKMSClientBuilder.standard().build();
+
+        AWSCredentialsProvider credentialsProvider = WebIdentityTokenCredentialsProvider.builder()
+            .roleArn(roleArn)
+            .roleSessionName("KMSSession")
+            .build();
+
+        this.kmsClient = AWSKMSClientBuilder.standard()
+            .withCredentials(credentialsProvider)
+            .withRegion("ap-southeast-1")  // 替换为您的 AWS 区域
+            .build();
+
+
         this.web3j = Web3j.build(new HttpService(nodeUrl));
     }
 
