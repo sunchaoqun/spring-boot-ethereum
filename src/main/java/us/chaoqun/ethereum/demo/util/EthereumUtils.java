@@ -1,11 +1,13 @@
 package us.chaoqun.ethereum.demo.util;
 
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
-import com.amazonaws.services.kms.AWSKMS;
-import com.amazonaws.services.kms.AWSKMSClientBuilder;
-import com.amazonaws.services.kms.model.GetPublicKeyRequest;
-import com.amazonaws.services.kms.model.SignRequest;
+// import software.amazon.awssdk.auth.credentials.ProcessCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.kms.KmsClient;
+import software.amazon.awssdk.services.kms.model.SignRequest;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.kms.model.MessageType;
+import software.amazon.awssdk.services.kms.model.SigningAlgorithmSpec;
+
 import org.bouncycastle.asn1.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -21,37 +23,56 @@ import us.chaoqun.ethereum.demo.model.TransactionParameters;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 import java.io.IOException;
 import java.util.Arrays;
 
 @Component
 public class EthereumUtils {
     private static final BigInteger SECP256_K1_N = new BigInteger("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16);
-    private final AWSKMS kmsClient;
+    // private final KmsClient kmsClient;
+    private final KmsClient kmsClient;
     private final Web3j web3j;
 
-    public EthereumUtils(@Value("${ethereum.node.url}") String nodeUrl,
-                          @Value("${aws.role.arn}") String roleArn) {
+    @SuppressWarnings("deprecation")
+    public EthereumUtils(@Value("${ethereum.node.url}") String nodeUrl, @Value("${aws.role.arn}") String roleArn) {
+
+        kmsClient = KmsClient.builder()
+            .region(Region.AP_SOUTHEAST_1)
+            .build();
+
         // this.kmsClient = AWSKMSClientBuilder.standard().build();
 
-        AWSCredentialsProvider credentialsProvider = WebIdentityTokenCredentialsProvider.builder()
-            .roleArn(roleArn)
-            .roleSessionName("KMSSession")
-            .build();
+        // AWSCredentialsProvider credentialsProvider = WebIdentityTokenCredentialsProvider.builder()
+        //     .roleArn(roleArn)
+        //     .roleSessionName("KMSSession")
+        //     .build();
 
-        this.kmsClient = AWSKMSClientBuilder.standard()
-            .withCredentials(credentialsProvider)
-            .withRegion("ap-southeast-1")  // 替换为您的 AWS 区域
-            .build();
+        // this.kmsClient = AWSKMSClientBuilder.standard()
+        //     .withCredentials(credentialsProvider)
+        //     .withRegion("ap-southeast-1")  // 替换为您的 AWS 区域
+        //     .build();
 
+        // -- IAM Role Anywhere
+        // ProcessCredentialsProvider processCredentialsProvider = ProcessCredentialsProvider.builder()
+        // .command("""
+        //         /Users/billysun/.aws/aws_signing_helper credential-process --trust-anchor-arn arn:aws:rolesanywhere:ap-southeast-1:932423224465:trust-anchor/58f805d6-a173-4c89-ace7-ae76319ffd22 --profile-arn arn:aws:rolesanywhere:ap-southeast-1:932423224465:profile/68ff50f0-2d1c-45c1-9fd8-3eb09220d285 --role-arn arn:aws:iam::932423224465:role/AWSIAMRoleAnywhere --certificate /Users/billysun/.aws/local/verification_cert.crt --private-key /Users/billysun/.aws/local/verification_cert.key
+        //     """).build();
+
+        // kmsClient = KmsClient.builder()
+        //         .credentialsProvider(processCredentialsProvider)
+        //         .region(Region.AP_SOUTHEAST_1)
+        //         .build();
+        // -- IAM Role Anywhere
 
         this.web3j = Web3j.build(new HttpService(nodeUrl));
     }
 
     public byte[] getKmsPublicKey(String keyId) {
-        GetPublicKeyRequest request = new GetPublicKeyRequest().withKeyId(keyId);
-        return kmsClient.getPublicKey(request).getPublicKey().array();
+        software.amazon.awssdk.services.kms.model.GetPublicKeyRequest request = 
+            software.amazon.awssdk.services.kms.model.GetPublicKeyRequest.builder()
+                .keyId(keyId)
+                .build();
+        return kmsClient.getPublicKey(request).publicKey().asByteArray();
     }
 
     public String calcEthAddress(byte[] pubKey) {
@@ -83,13 +104,14 @@ public class EthereumUtils {
             throw new IllegalArgumentException("Message hash must be exactly 32 bytes long");
         }
 
-        SignRequest request = new SignRequest()
-            .withKeyId(keyId)
-            .withMessage(ByteBuffer.wrap(messageHash))
-            .withSigningAlgorithm("ECDSA_SHA_256")
-            .withMessageType("DIGEST");
+        SignRequest request = SignRequest.builder()
+            .keyId(keyId)
+            .message(SdkBytes.fromByteArray(messageHash))
+            .signingAlgorithm(SigningAlgorithmSpec.ECDSA_SHA_256)
+            .messageType(MessageType.DIGEST)
+            .build();
 
-        byte[] signatureBytes = kmsClient.sign(request).getSignature().array();
+        byte[] signatureBytes = kmsClient.sign(request).signature().asByteArray();
         
         try {
             // Decode ASN.1 signature (equivalent to Python's asn1tools.compile_string)
