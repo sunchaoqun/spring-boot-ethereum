@@ -5,8 +5,12 @@ import com.amazonaws.services.kms.AWSKMSClientBuilder;
 import com.amazonaws.services.kms.model.GetPublicKeyRequest;
 import com.amazonaws.services.kms.model.SignRequest;
 import org.bouncycastle.asn1.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.web3j.crypto.*;
+import org.web3j.protocol.Web3j;
+import org.web3j.protocol.core.DefaultBlockParameterName;
+import org.web3j.protocol.http.HttpService;
 import org.web3j.utils.Convert;
 import org.web3j.utils.Numeric;
 import us.chaoqun.ethereum.demo.model.SignatureData;
@@ -23,9 +27,11 @@ import java.util.Arrays;
 public class EthereumUtils {
     private static final BigInteger SECP256_K1_N = new BigInteger("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16);
     private final AWSKMS kmsClient;
+    private final Web3j web3j;
 
-    public EthereumUtils() {
+    public EthereumUtils(@Value("${ethereum.node.url}") String nodeUrl) {
         this.kmsClient = AWSKMSClientBuilder.standard().build();
+        this.web3j = Web3j.build(new HttpService(nodeUrl));
     }
 
     public byte[] getKmsPublicKey(String keyId) {
@@ -106,10 +112,17 @@ public class EthereumUtils {
         System.out.println("Amount in ETH: " + amount);
         System.out.println("Amount in Wei: " + valueInWei);
         
+        // 添加调试信息
+        System.out.println("Gas Limit: " + BigInteger.valueOf(160000));
+        System.out.println("Max Fee Per Gas: " + maxFeePerGas + " wei");
+        System.out.println("Max Priority Fee Per Gas: " + maxPriorityFeePerGas + " wei");
+        System.out.println("Estimated total gas cost: " + 
+            BigInteger.valueOf(160000).multiply(maxFeePerGas).add(valueInWei) + " wei");
+        
         return TransactionParameters.builder()
                 .nonce(nonce)
                 .to(dstAddress)
-                .value(valueInWei)  // 使用转换后的 Wei 值
+                .value(valueInWei)
                 .data("0x00")
                 .gasLimit(BigInteger.valueOf(160000))
                 .maxFeePerGas(maxFeePerGas)
@@ -120,6 +133,7 @@ public class EthereumUtils {
     }
 
     private byte findRecoveryId(byte[] messageHash, SignatureData signature, String ethChecksumAddr, long chainId) {
+        System.out.println("Chain ID: " + chainId);
         System.out.println("Target address: " + ethChecksumAddr);
         
         for (int i = 0; i < 4; i++) {
@@ -132,15 +146,13 @@ public class EthereumUtils {
                 );
                 
                 if (publicKey != null) {
-                    // 确保地址格式一致
                     String recoveredAddress = "0x" + Keys.getAddress(publicKey);
                     System.out.println("Recovery attempt " + i + " recovered address: " + recoveredAddress);
                     
-                    // 将两个地址都转换为小写进行比较
                     if (ethChecksumAddr.toLowerCase().equals(recoveredAddress.toLowerCase())) {
-                        // For EIP-155, convert recovery ID to v
-                        byte v = chainId > 0 ? (byte)(35 + i + (chainId * 2)) : (byte)(27 + i);
-                        System.out.println("Found matching address with recId " + i + ", v = " + v);
+                        // 对于 EIP-1559，使用 27 + recId
+                        byte v = (byte)(27 + i);
+                        System.out.println("Using standard v value: 27 + " + i + " = " + v);
                         return v;
                     }
                 }
@@ -156,6 +168,29 @@ public class EthereumUtils {
                                       String keyId,
                                       String ethChecksumAddr,
                                       long chainId) {
+        // 在发送交易前调用
+        BigInteger balance = new BigInteger("0");
+        BigInteger nonce = new BigInteger("0");
+        try {
+            balance = checkBalance(ethChecksumAddr);
+            nonce = getNonce(ethChecksumAddr);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // 计算总成本
+        BigInteger totalCost = txParams.getGasLimit()
+                .multiply(txParams.getMaxFeePerGas())
+                .add(txParams.getValue());
+
+        if (balance.compareTo(totalCost) < 0) {
+            throw new IllegalStateException(String.format(
+                "Insufficient balance. Required: %s wei, Available: %s wei",
+                totalCost,
+                balance
+            ));
+        }
+        
         // Create RawTransaction
         RawTransaction rawTransaction = RawTransaction.createTransaction(
             chainId,
@@ -184,11 +219,8 @@ public class EthereumUtils {
         
         // Find recovery id and encode transaction
         byte v = findRecoveryId(messageHash, signature, ethChecksumAddr, chainId);
+        System.out.println("Final v value: " + v);
         
-        // Debug output
-        System.out.println("Recovery V: " + v);
-        
-        // Create Sign.SignatureData (web3j version)
         Sign.SignatureData web3jSignature = new Sign.SignatureData(
             v,
             Numeric.toBytesPadded(signature.getR(), 32),
@@ -199,5 +231,24 @@ public class EthereumUtils {
         String txHash = Numeric.toHexString(Hash.sha3(encodedTransaction));
 
         return new SignedTransaction(txHash, Numeric.toHexString(encodedTransaction));
+    }
+
+    public BigInteger checkBalance(String address) throws IOException {
+        BigInteger balance = web3j.ethGetBalance(address, DefaultBlockParameterName.LATEST)
+                .send()
+                .getBalance();
+        System.out.println("Account Balance in Wei: " + balance);
+        System.out.println("Account Balance in ETH: " + Convert.fromWei(balance.toString(), Convert.Unit.ETHER));
+        return balance;
+    }
+
+    public BigInteger getNonce(String address) throws IOException {
+        BigInteger nonce = web3j.ethGetTransactionCount(
+                address, 
+                DefaultBlockParameterName.LATEST)
+                .send()
+                .getTransactionCount();
+        System.out.println("Current nonce: " + nonce);
+        return nonce;
     }
 } 
