@@ -41,3 +41,63 @@ c91103b6-d704-4d19-9d6a-d1114e849bc2
 
 
 8c7c0889-2b8a-4935-84d9-59575a10623a
+
+
+TransactionRequest requestContract = new TransactionRequest();
+        requestContract.setOperation("contract");
+        requestContract.setContractAddress("0x465e6b7fab70545b05aba0ea92cdb817a402a3ce");  // 合约地址
+        requestContract.setEncodedFunction(ContractUtils.encodeGetValueData());  // 已编码的函数调用数据
+        requestContract.setNonce(1L);
+        requestContract.setChainId(17000L);  // holesky
+        requestContract.setType(2);     // EIP-1559
+        requestContract.setMaxFeePerGas(30000000000L);
+        requestContract.setMaxPriorityFeePerGas(1500000000L);
+
+        TransactionResponse response = ethereumService.createTransaction(requestContract);
+
+        Web3j web3j = Web3j.build(new HttpService("https://holesky.infura.io/v3/01563559eadd46efa145cc2cd225f72e"));
+        
+        try {
+            // 1. 首先发送交易
+            String txHash = web3j.ethSendRawTransaction(response.getSignedTxPayload())
+                .send()
+                .getTransactionHash();
+            
+            // 2. 等待交易被打包（可选）
+            TransactionReceipt receipt = web3j.ethGetTransactionReceipt(txHash)
+                .send()
+                .getResult();
+                
+            // 3. 调用合约的view方法来获取value
+            String encodedFunction = ContractUtils.encodeGetValueData();
+            System.out.println("Encoded function: " + encodedFunction);
+            System.out.println("Contract address: " + requestContract.getContractAddress());
+            
+            EthCall ethCall = web3j.ethCall(
+                Transaction.createEthCallTransaction(
+                    null, 
+                    requestContract.getContractAddress(), 
+                    encodedFunction
+                ),
+                DefaultBlockParameterName.LATEST
+            ).send();
+            
+            if (ethCall.hasError()) {
+                System.out.println("Error: " + ethCall.getError().getMessage());
+            }
+            
+            System.out.println("ethCall: " + ethCall.getValue());
+
+            // 4. 解码返回值
+            String value = ContractUtils.decodeValueResult(ethCall.getValue());
+            System.out.println("Contract value: " + value);  // 打印到控制台
+            
+            // 5. 将结果添加到response中返回给客户端
+            
+            
+        } catch (IOException e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+
+        return ResponseEntity.ok(response);
